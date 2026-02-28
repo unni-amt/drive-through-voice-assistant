@@ -36,7 +36,7 @@ from livekit.agents import (
 from livekit.plugins import silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-load_dotenv()
+load_dotenv(".env.local")
 
 logger = logging.getLogger("drive-thru")
 
@@ -49,7 +49,6 @@ class Userdata:
     happy_items: list[MenuItem]
     regular_items: list[MenuItem]
     sauce_items: list[MenuItem]
-
 
 class DriveThruAgent(Agent):
     def __init__(self, *, userdata: Userdata) -> None:
@@ -82,6 +81,7 @@ class DriveThruAgent(Agent):
             ],
         )
 
+        
     def build_combo_order_tool(
         self, combo_items: list[MenuItem], drink_items: list[MenuItem], sauce_items: list[MenuItem]
     ) -> FunctionTool:
@@ -95,7 +95,7 @@ class DriveThruAgent(Agent):
             meal_id: Annotated[
                 str,
                 Field(
-                    description="The ID of the combo meal the user requested.",
+                    description="The ID of the combo meal or thali the user requested.",
                     json_schema_extra={"enum": list(available_combo_ids)},
                 ),
             ],
@@ -106,29 +106,26 @@ class DriveThruAgent(Agent):
                     json_schema_extra={"enum": list(available_drink_ids)},
                 ),
             ],
-            drink_size: Literal["M", "L", "null"] | None,
-            fries_size: Literal["M", "L"],
+            drink_size: Literal["S", "M", "L", "null"] | None,
             sauce_id: Annotated[
                 str,
                 Field(
-                    description="The ID of the sauce the user requested.",
+                    description="The ID of the chutney or extra the user requested.",
                     json_schema_extra={"enum": [*available_sauce_ids, "null"]},
                 ),
             ]
             | None,
         ):
             """
-            Call this when the user orders a **Combo Meal**, like: “Number 4b with a large Sprite” or “I'll do a medium meal.”
+            Call this when the user orders a **Combo Meal or Thali**, like: “Number 1 with a large Thums Up” or “I'll do the Butter Chicken Thali.”
 
             Do not call this tool unless the user clearly refers to a known combo meal by name or number.
-            Regular items like a single cheeseburger cannot be made into a meal unless such a combo explicitly exists.
+            Regular items like a single Vada Pav cannot be made into a meal unless such a combo explicitly exists.
 
-            Only call this function once the user has clearly specified both a drink and a sauce — always ask for them if they're missing.
+            Only call this function once the user has clearly specified a drink — always ask for it if it's missing.
 
-            A meal can only be Medium or Large; Small is not an available option.
-            Drink and fries sizes can differ (e.g., “large fries but a medium Coke”).
-
-            If the user says just “a large meal,” assume both drink and fries are that size.
+            A drink for a combo can be Small, Medium, or Large.
+            If the user says just “a large meal,” assume the drink is that size.
             """
             if not find_items_by_id(combo_items, meal_id):
                 raise ToolError(f"error: the meal {meal_id} was not found")
@@ -155,12 +152,8 @@ class DriveThruAgent(Agent):
                     f"error: size should not be specified for item {drink_id} as it does not support sizing options."
                 )
 
-            available_sizes = list({item.size for item in drink_sizes if item.size})
-            if drink_size not in available_sizes:
+            if drink_size and drink_size not in available_sizes:
                 drink_size = None
-                # raise ToolError(
-                #     f"error: unknown size {drink_size} for {drink_id}. Available sizes: {', '.join(available_sizes)}."
-                # )
 
             if sauce_id and not find_items_by_id(sauce_items, sauce_id):
                 raise ToolError(f"error: the sauce {sauce_id} was not found")
@@ -170,7 +163,6 @@ class DriveThruAgent(Agent):
                 drink_id=drink_id,
                 drink_size=drink_size,
                 sauce_id=sauce_id,
-                fries_size=fries_size,
             )
             await ctx.userdata.order.add(item)
             return f"The item was added: {item.model_dump_json()}"
@@ -193,7 +185,7 @@ class DriveThruAgent(Agent):
             meal_id: Annotated[
                 str,
                 Field(
-                    description="The ID of the happy meal the user requested.",
+                    description="The ID of the kid's meal the user requested.",
                     json_schema_extra={"enum": list(available_happy_ids)},
                 ),
             ],
@@ -208,22 +200,22 @@ class DriveThruAgent(Agent):
             sauce_id: Annotated[
                 str,
                 Field(
-                    description="The ID of the sauce the user requested.",
+                    description="The ID of the chutney or extra the user requested.",
                     json_schema_extra={"enum": [*available_sauce_ids, "null"]},
                 ),
             ]
             | None,
         ) -> str:
             """
-            Call this when the user orders a **Happy Meal**, typically for children. These meals come with a main item, a drink, and a sauce.
+            Call this when the user orders a **Kid's Meal**. These meals come with a main item, a drink, and an optional side.
 
-            The user must clearly specify a valid Happy Meal option (e.g., “Can I get a Happy Meal?”).
+            The user must clearly specify a valid Kid's Meal option (e.g., “Can I get a Mini Dosa Meal?”).
 
             Before calling this tool:
-            - Ensure the user has provided all required components: a valid meal, drink, drink size, and sauce.
+            - Ensure the user has provided all required components: a valid meal, drink, and drink size.
             - If any of these are missing, prompt the user for the missing part before proceeding.
 
-            Assume Small as default only if the user says "Happy Meal" and gives no size preference, but always ask for clarification if unsure.
+            Assume Small as default only if the user says "Kid's Meal" and gives no size preference, but always ask for clarification if unsure.
             """
             if not find_items_by_id(happy_items, meal_id):
                 raise ToolError(f"error: the meal {meal_id} was not found")
@@ -282,7 +274,6 @@ class DriveThruAgent(Agent):
                 ),
             ],
             size: Annotated[
-                # models don't seem to understand `ItemSize | None`, adding the `null` inside the enum list as a workaround
                 Literal["S", "M", "L", "null"] | None,
                 Field(
                     description="Size of the item, if applicable (e.g., 'S', 'M', 'L'), otherwise 'null'. "
@@ -290,15 +281,15 @@ class DriveThruAgent(Agent):
             ] = "null",
         ) -> str:
             """
-            Call this when the user orders **a single item on its own**, not as part of a Combo Meal or Happy Meal.
+            Call this when the user orders **a single item on its own**, not as part of a Combo Meal or Kid's Meal.
 
             The customer must provide clear and specific input. For example, item variants such as flavor must **always** be explicitly stated.
 
             The user might say—for example:
-            - “Just the cheeseburger, no meal”
-            - “A medium Coke”
-            - “Can I get some ketchup?”
-            - “Can I get a McFlurry Oreo?”
+            - “Just the Vada Pav, no meal”
+            - “A medium Mango Lassi”
+            - “Can I get some Mint Chutney?”
+            - “Can I get a Gulab Jamun?”
             """
             item_sizes = find_items_by_id(all_items, item_id)
             if not item_sizes:
@@ -316,9 +307,6 @@ class DriveThruAgent(Agent):
 
             if size is not None and not available_sizes:
                 size = None
-                # raise ToolError(
-                #     f"error: size should not be specified for item {item_id} as it does not support sizing options."
-                # )
 
             if (size and available_sizes) and size not in available_sizes:
                 raise ToolError(
@@ -345,7 +333,7 @@ class DriveThruAgent(Agent):
         """
         Removes one or more items from the user's order using their `order_id`s.
 
-        Useful when the user asks to cancel or delete existing items (e.g., “Remove the cheeseburger”).
+        Useful when the user asks to cancel or delete existing items (e.g., “Remove the samosas”).
 
         If the `order_id`s are unknown, call `list_order_items` first to retrieve them.
         """
@@ -366,8 +354,8 @@ class DriveThruAgent(Agent):
         - Confirming details or contents of the current order.
 
         Examples:
-        - User requests modifying an item, but the item's `order_id` is unknown (e.g., "Change the fries from small to large").
-        - User requests removing an item, but the item's `order_id` is unknown (e.g., "Remove the cheeseburger").
+        - User requests modifying an item, but the item's `order_id` is unknown (e.g., "Change the Lassi from small to large").
+        - User requests removing an item, but the item's `order_id` is unknown (e.g., "Remove the Naan").
         - User asks about current order details (e.g., "What's in my order so far?").
         """
         items = ctx.userdata.order.items.values()
@@ -412,17 +400,18 @@ async def drive_thru_agent(ctx: JobContext) -> None:
         userdata=userdata,
         stt=inference.STT(
             "deepgram/nova-3",
-            language="en",
+            language="en-IN", # Updated to Indian English for better local accent recognition
             extra_kwargs={
                 "keyterm": [
-                    "Big Mac",
-                    "McFlurry",
-                    "McCrispy",
-                    "McNuggets",
-                    "Meal",
-                    "Sundae",
-                    "Oreo",
-                    "Jalapeno Ranch",
+                    "Thali",
+                    "Biryani",
+                    "Lassi",
+                    "Samosa",
+                    "Paneer",
+                    "Chutney",
+                    "Naan",
+                    "Vada Pav",
+                    "Thums Up",
                 ],
             },
         ),

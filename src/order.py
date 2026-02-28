@@ -18,9 +18,8 @@ class OrderedCombo(BaseModel):
     order_id: str = Field(default_factory=order_uid)
     meal_id: str
     drink_id: str
-    drink_size: Literal["M", "L"] | None
-    fries_size: Literal["M", "L"]
-    sauce_id: str | None
+    drink_size: Literal["S", "M", "L"] | None
+    sauce_id: str | None  # Represents chutneys/raitas in the new database
 
 
 class OrderedHappy(BaseModel):
@@ -53,4 +52,4 @@ class OrderState:
         return self.items.pop(order_id)
 
     def get(self, order_id: str) -> OrderedItem | None:
-        return self.items[order_id]
+        return self.items.get(order_id)
