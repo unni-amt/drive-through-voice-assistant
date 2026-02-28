@@ -29,4 +29,17 @@ Run the application in console mode
 uv run python src/agent.py console
 ```
 
+In a seperate terminal run
 
+```bash
+cd src/
+
+python -m http.server 8000
+
+```
+
+Then open browser and enter where the receipt will be updated
+
+```
+http://localhost:8000/receipt.html
+```
