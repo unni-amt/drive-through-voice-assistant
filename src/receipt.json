@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "order_id": "O_38OFCL",
+      "name": "Punjabi Samosa (2 pc)",
+      "sub_items": [],
+      "price": 60.0
+    },
+    {
+      "order_id": "O_UX2ZOC",
+      "name": "Mango Lassi (M)",
+      "sub_items": [],
+      "price": 110.0
+    }
+  ],
+  "total_price": 170.0
+}

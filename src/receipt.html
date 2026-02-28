@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spice Route Receipt</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; display: flex; justify-content: center; padding: 40px; }
+        .receipt { background: white; padding: 20px 40px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 450px; }
+        h2 { border-bottom: 2px solid #ddd; padding-bottom: 10px; text-align: center; }
+        .item-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 0; border-bottom: 1px dashed #eee; }
+        .item-details { flex-grow: 1; padding-right: 15px; }
+        .item-price { font-weight: bold; color: #333; }
+        .sub-item { color: #666; font-size: 0.9em; margin-left: 10px; margin-top: 4px; }
+        .total { font-size: 1.4em; font-weight: bold; text-align: right; margin-top: 20px; color: #2e7d32; border-top: 2px solid #ddd; padding-top: 15px; }
+        .empty { text-align: center; color: #888; font-style: italic; margin-top: 20px;}
+    </style>
+</head>
+<body>
+    <div class="receipt">
+        <h2>Spice Route Order</h2>
+        <div id="order-items"><div class="empty">Listening for order...</div></div>
+        <div class="total" id="total-count">Total: ₹0.00</div>
+    </div>
+
+    <script>
+        setInterval(async () => {
+            try {
+                const response = await fetch('receipt.json?t=' + new Date().getTime());
+                
+                // 1. Check if the file actually exists on the server
+                if (!response.ok) {
+                    console.error("Could not find receipt.json. HTTP Status:", response.status);
+                    return;
+                }
+
+                const data = await response.json();
+                
+                const container = document.getElementById('order-items');
+                const total = document.getElementById('total-count');
+                
+                if (!data.items || data.items.length === 0) {
+                    container.innerHTML = '<div class="empty">Listening for order...</div>';
+                    total.innerText = 'Total: ₹0.00';
+                    return;
+                }
+
+                container.innerHTML = data.items.map(item => `
+                    <div class="item-row">
+                        <div class="item-details">
+                            <strong>${item.name}</strong>
+                            ${item.sub_items.map(sub => `<div class="sub-item">${sub}</div>`).join('')}
+                        </div>
+                        <div class="item-price">₹${item.price.toFixed(2)}</div>
+                    </div>
+                `).join('');
+                
+                total.innerText = `Total: ₹${data.total_price.toFixed(2)}`;
+            } catch (e) {
+                // 2. Log the error so we aren't flying blind!
+                console.error("Error reading or parsing the receipt:", e);
+            }
+        }, 2000); 
+    </script>
+               
+</body>
+</html>

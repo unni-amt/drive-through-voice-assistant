@@ -50,6 +50,76 @@ class Userdata:
     regular_items: list[MenuItem]
     sauce_items: list[MenuItem]
 
+
+# --- ENRICHED RECEIPT WRITER ---
+def update_receipt_file(userdata: Userdata):
+    """Enriches the order with human-readable names and prices, then saves it."""
+    # Combine all menus into one list so we can easily search for IDs
+    all_menu_items = (
+        userdata.combo_items + userdata.happy_items + 
+        userdata.regular_items + userdata.drink_items + userdata.sauce_items
+    )
+
+    receipt_data = {
+        "items": [],
+        "total_price": 0.0
+    }
+
+    for item in userdata.order.items.values():
+        receipt_item = {
+            "order_id": item.order_id,
+            "name": "",
+            "sub_items": [],
+            "price": 0.0
+        }
+        item_total = 0.0
+
+        # Regular items
+        if item.type == "regular":
+            matches = find_items_by_id(all_menu_items, item.item_id, item.size)
+            if not matches: # Fallback if specific size isn't found
+                matches = find_items_by_id(all_menu_items, item.item_id)
+                
+            if matches:
+                mi = matches[0]
+                receipt_item["name"] = f"{mi.name} {f'({item.size})' if item.size else ''}".strip()
+                item_total += mi.price
+
+        # Combo and Happy Meals
+        elif item.type in ["combo_meal", "happy_meal"]:
+            matches = find_items_by_id(all_menu_items, item.meal_id)
+            if matches:
+                mi = matches[0]
+                receipt_item["name"] = mi.name
+                item_total += mi.price
+
+            # Add Drink
+            if item.drink_id:
+                d_matches = find_items_by_id(all_menu_items, item.drink_id, item.drink_size)
+                if not d_matches:
+                    d_matches = find_items_by_id(all_menu_items, item.drink_id)
+                if d_matches:
+                    d_mi = d_matches[0]
+                    receipt_item["sub_items"].append(f"+ {d_mi.name} {f'({item.drink_size})' if item.drink_size else ''}".strip())
+                    item_total += d_mi.price 
+
+            # Add Sauce/Chutney
+            if getattr(item, 'sauce_id', None):
+                s_matches = find_items_by_id(all_menu_items, item.sauce_id)
+                if s_matches:
+                    s_mi = s_matches[0]
+                    receipt_item["sub_items"].append(f"+ {s_mi.name}")
+                    item_total += s_mi.price
+
+        receipt_item["price"] = item_total
+        receipt_data["total_price"] += item_total
+        receipt_data["items"].append(receipt_item)
+
+    # Write the enriched data to the JSON file
+    with open("src/receipt.json", "w", encoding="utf-8") as f:
+        json.dump(receipt_data, f, indent=2)
+
+
 class DriveThruAgent(Agent):
     def __init__(self, *, userdata: Userdata) -> None:
         instructions = (
@@ -165,6 +235,10 @@ class DriveThruAgent(Agent):
                 sauce_id=sauce_id,
             )
             await ctx.userdata.order.add(item)
+            
+            # --- WRITE ENRICHED DATA TO JSON FILE ---
+            update_receipt_file(ctx.userdata)
+            
             return f"The item was added: {item.model_dump_json()}"
 
         return order_combo_meal
@@ -250,6 +324,10 @@ class DriveThruAgent(Agent):
                 sauce_id=sauce_id,
             )
             await ctx.userdata.order.add(item)
+            
+            # --- WRITE ENRICHED DATA TO JSON FILE ---
+            update_receipt_file(ctx.userdata)
+            
             return f"The item was added: {item.model_dump_json()}"
 
         return order_happy_meal
@@ -315,6 +393,10 @@ class DriveThruAgent(Agent):
 
             item = OrderedRegular(item_id=item_id, size=size)
             await ctx.userdata.order.add(item)
+            
+            # --- WRITE ENRICHED DATA TO JSON FILE ---
+            update_receipt_file(ctx.userdata)
+            
             return f"The item was added: {item.model_dump_json()}"
 
         return order_regular_item
@@ -342,6 +424,10 @@ class DriveThruAgent(Agent):
             raise ToolError(f"error: no item(s) found with order_id(s): {', '.join(not_found)}")
 
         removed_items = [await ctx.userdata.order.remove(oid) for oid in order_id]
+        
+        # --- WRITE ENRICHED DATA TO JSON FILE ---
+        update_receipt_file(ctx.userdata)
+        
         return "Removed items:\n" + "\n".join(item.model_dump_json() for item in removed_items)
 
     @function_tool
@@ -390,12 +476,21 @@ server = AgentServer()
 
 async def on_session_end(ctx: JobContext) -> None:
     report = ctx.make_session_report()
-    _ = json.dumps(report.to_dict(), indent=2)
+    # Add 'default=str' to safely handle complex objects like the LLM
+    report_json = json.dumps(report.to_dict(), indent=2, default=str)
+    
+    # Optional: Print it so you can actually see the report in your terminal!
+    print(f"\n--- SESSION REPORT ---\n{report_json}\n----------------------\n")
 
 
 @server.rtc_session(on_session_end=on_session_end)
 async def drive_thru_agent(ctx: JobContext) -> None:
     userdata = await new_userdata()
+    
+    # Optional: Clear the receipt.json with an empty schema when a new session starts
+    with open("receipt.json", "w", encoding="utf-8") as f:
+        json.dump({"items": [], "total_price": 0.0}, f, indent=2)
+        
     session = AgentSession[Userdata](
         userdata=userdata,
         stt=inference.STT(
